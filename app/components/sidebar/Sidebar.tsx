@@ -106,7 +106,9 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                     : 'text-[var(--txt2)] hover:bg-[var(--bg3)] hover:text-[var(--txt)]'
                 )}
               >
-                <Icon size={15} className="flex-shrink-0" />
+                <span className="flex-shrink-0">
+                    <Icon size={15} />
+                </span>
                 <div className="flex-1 min-w-0">
                   <p className="text-[13px] font-medium leading-none">{label}</p>
                   <p className="text-[11px] text-[var(--txt3)] mt-0.5">{desc}</p>
