@@ -12,6 +12,7 @@ import {
   ChatInputBar,
 } from '@/app/components/ui/MessageBubble'
 import { toast } from '@/app/components/ui'
+import { cn } from '@/lib/utils'
 
 const QUICK = [
   'Summarize in 5 bullet points',
@@ -19,6 +20,14 @@ const QUICK = [
   'List important terms & definitions',
   'What questions does this raise?',
 ]
+
+// Provider badge colors — matches ChatTool
+const PROVIDER_STYLES: Record<string, string> = {
+  Groq:       'text-orange-400 border-orange-400/30 bg-orange-400/10',
+  OpenRouter: 'text-purple-400 border-purple-400/30 bg-purple-400/10',
+  Gemini:     'text-blue-400   border-blue-400/30   bg-blue-400/10',
+  Puter:      'text-green-400  border-green-400/30  bg-green-400/10',
+}
 
 export function PdfTool() {
   const {
@@ -29,6 +38,7 @@ export function PdfTool() {
 
   const [streamingId, setStreamingId] = useState<string | undefined>()
   const [loading, setLoading] = useState(false)
+  const [activeProvider, setActiveProvider] = useState<string>('')
 
   async function loadFile(file: File) {
     if (!file.name.toLowerCase().endsWith('.pdf')) {
@@ -63,23 +73,32 @@ export function PdfTool() {
     const placeholder = addPdfMessage('assistant', '')
     setStreamingId(placeholder.id)
 
+    // ✅ FIXED: slice(0, -2) removes [user question + empty placeholder]
+    // THEN filter removes any other empty messages from history
+    // This gives clean history WITHOUT the current exchange
     const history = useStore
       .getState()
-      .pdfMessages.filter((m) => m.content !== '')
-      .slice(0, -1)
-      .map((m) => ({ role: m.role, content: m.content }))
+      .pdfMessages
+      .slice(0, -2)
+      .filter((m) => m.content !== '')
+      .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }))
+
+    // Trim PDF to safe size for all providers
+    const trimmedPdf = pdfText.slice(0, 40000)
 
     await callClaude({
       messages: [...history, { role: 'user', content: question }],
-      systemPrompt: `You are an expert document analyst. Answer questions based ONLY on the following document.\n\n--- DOCUMENT ---\n${pdfText.slice(0, 60000)}`,
+      systemPrompt: `You are an expert document analyst. Answer questions based ONLY on the following document.\n\n--- DOCUMENT ---\n${trimmedPdf}`,
       model,
-      stream: false,
+      stream: true, // ✅ FIXED: was hardcoded false, broke Groq/OpenRouter
       onToken: (full) => {
+        if (!full) return // ✅ FIXED: guard against empty reset during provider fallback
         updateLastMessage('pdf', full)
-        addTokens(full)
+        addTokens(full.slice(-20))
       },
       onDone: (full) => {
         updateLastMessage('pdf', full)
+        addTokens(full)
         setStreamingId(undefined)
         setThinking(false)
       },
@@ -88,6 +107,7 @@ export function PdfTool() {
         setStreamingId(undefined)
         setThinking(false)
       },
+      onProvider: (name) => setActiveProvider(name),
     })
   }
 
@@ -98,16 +118,14 @@ export function PdfTool() {
           <div className="flex flex-col flex-1 overflow-hidden">
             {/* File header */}
             <div className="flex items-center gap-2.5 px-4 py-3 border-b border-[var(--bdr)] flex-shrink-0">
-              <FileText
-                size={14}
-                className="text-[var(--acc)] flex-shrink-0"
-              />
+              <FileText size={14} className="text-[var(--acc)] flex-shrink-0" />
               <span className="flex-1 text-[12.5px] font-semibold text-[var(--txt)] truncate">
                 {pdfFileName}
               </span>
               <button
                 onClick={() => {
                   clearPdf()
+                  setActiveProvider('')
                   toast('PDF cleared')
                 }}
                 className="text-[var(--txt3)] hover:text-red-400 transition-colors"
@@ -182,12 +200,25 @@ export function PdfTool() {
               )}
           </MessagesList>
 
-          {/* Input */}
+          {/* Input with provider badge */}
           <ChatInputBar
             placeholder="Ask anything about this PDF…"
             onSend={ask}
             disabled={thinking || !pdfText}
-          />
+          >
+            {activeProvider && (
+              <span
+                className={cn(
+                  'inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] border font-medium transition-all',
+                  PROVIDER_STYLES[activeProvider] ?? 'text-[var(--txt3)] border-[var(--bdr)] bg-[var(--bg3)]'
+                )}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
+                {activeProvider}
+              </span>
+            )}
+          </ChatInputBar>
+
         </div>
       }
     />

@@ -16,6 +16,14 @@ const SUGGESTIONS = [
   'Write a cover letter for a senior dev role',
 ]
 
+// Provider badge colors
+const PROVIDER_STYLES: Record<string, string> = {
+  Groq:        'text-orange-400 border-orange-400/30 bg-orange-400/10',
+  OpenRouter:  'text-purple-400 border-purple-400/30 bg-purple-400/10',
+  Gemini:      'text-blue-400   border-blue-400/30   bg-blue-400/10',
+  Puter:       'text-green-400  border-green-400/30  bg-green-400/10',
+}
+
 function getGreeting() {
   const h = new Date().getHours()
   return h < 12 ? 'Morning' : h < 17 ? 'Afternoon' : 'Evening'
@@ -34,6 +42,7 @@ export function ChatTool() {
   const [showTemp, setShowTemp] = useState(false)
   const [draftSystem, setDraftSystem] = useState(systemPrompt)
   const [draftTemp, setDraftTemp] = useState(temperature)
+  const [activeProvider, setActiveProvider] = useState<string>('')  // 👈 tracks which provider responded
   const abortRef = useRef(false)
 
   async function send(text: string) {
@@ -74,6 +83,7 @@ export function ChatTool() {
         setStreamingId(undefined)
         setThinking(false)
       },
+      onProvider: (name) => setActiveProvider(name),  // 👈 set provider on success
     })
   }
 
@@ -81,7 +91,6 @@ export function ChatTool() {
     const msgs = useStore.getState().chatMessages
     const lastUser = [...msgs].reverse().find(m => m.role === 'user')
     if (!lastUser || thinking) return
-    // Remove last assistant message
     const filtered = msgs.filter((_, i) => i !== msgs.length - 1)
     useStore.setState({ chatMessages: filtered })
     await send(lastUser.content)
@@ -121,6 +130,20 @@ export function ChatTool() {
       </MessagesList>
 
       <ChatInputBar onSend={send} disabled={thinking} placeholder="Message Aurelius…">
+
+        {/* 👇 Provider badge — shows which AI provider responded */}
+        {activeProvider && (
+          <span
+            className={cn(
+              'inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] border font-medium transition-all',
+              PROVIDER_STYLES[activeProvider] ?? 'text-[var(--txt3)] border-[var(--bdr)] bg-[var(--bg3)]'
+            )}
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-current opacity-80" />
+            {activeProvider}
+          </span>
+        )}
+
         <button
           onClick={() => setStreaming(!streaming)}
           className={cn(
@@ -151,7 +174,7 @@ export function ChatTool() {
         </button>
 
         <button
-          onClick={() => { clearChat(); toast('Chat cleared') }}
+          onClick={() => { clearChat(); setActiveProvider(''); toast('Chat cleared') }}
           className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11.5px] border bg-[var(--bg3)] border-[var(--bdr)] text-[var(--txt3)] hover:text-red-400 hover:border-red-400/40 transition-all"
         >
           <Trash2 size={10} />

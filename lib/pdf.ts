@@ -6,8 +6,12 @@ export async function extractPdfText(
   // Dynamically import to avoid SSR issues
   const pdfjsLib = await import('pdfjs-dist')
 
-  pdfjsLib.GlobalWorkerOptions.workerSrc =
-    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
+  // ✅ FIXED: matches your installed pdfjs-dist v5.5.207
+  // v5 uses .mjs worker, not .min.js
+  pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+    'pdfjs-dist/build/pdf.worker.min.mjs',
+    import.meta.url
+  ).toString()
 
   const arrayBuffer = await file.arrayBuffer()
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise

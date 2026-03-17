@@ -86,39 +86,32 @@ interface CallOptions {
   onToken?: (full: string) => void
   onDone: (full: string) => void
   onError: (err: string) => void
+  onProvider?: (name: string) => void // tells UI which provider is active
 }
 
 // ─────────────────────────────────────────────
-// Provider 1 — Puter.js (Claude / GPT via puter)
+// Removes Puter popup from DOM instantly
+// Called as soon as Puter fails & we switch provider
 // ─────────────────────────────────────────────
-async function callViaPuter(
-  msgs: { role: string; content: string }[],
-  model: Model,
-  stream: boolean,
-  onToken?: (full: string) => void
-): Promise<string> {
-  const puter = window.puter
-  if (!puter) throw new Error('Puter.js not loaded')
-
-  if (stream) {
-    const iter = await puter.ai.chat(msgs, { model, stream: true })
-    let full = ''
-    for await (const chunk of iter) {
-      const token: string = chunk?.text ?? chunk?.delta?.text ?? ''
-      if (token) {
-        full += token
-        onToken?.(full)
-      }
-    }
-    return full
-  } else {
-    const res = await puter.ai.chat(msgs, { model })
-    return res?.message?.content?.[0]?.text ?? res?.text ?? String(res)
-  }
+function dismissPuterPopup() {
+  const selectors = [
+    '.puter-dialog',
+    '.puter-modal',
+    '.puter-overlay',
+    '#puter-dialog',
+    '#puter-modal',
+    '[class*="puter-"]',
+  ]
+  selectors.forEach((selector) => {
+    document.querySelectorAll(selector).forEach((el) => el.remove())
+  })
+  // Restore body scroll/pointer in case Puter locked it
+  document.body.style.overflow = ''
+  document.body.style.pointerEvents = ''
 }
 
 // ─────────────────────────────────────────────
-// Provider 2 — Groq (Llama 3, free tier)
+// Provider 1 — Groq (primary, 500K tokens/day free)
 // Get free API key: https://console.groq.com
 // Add to .env.local: NEXT_PUBLIC_GROQ_API_KEY=xxx
 // ─────────────────────────────────────────────
@@ -136,7 +129,7 @@ async function callViaGroq(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile', // current production model (free tier)
+      model: 'llama-3.3-70b-versatile',
       messages: msgs,
       stream: !!onToken,
     }),
@@ -174,7 +167,7 @@ async function callViaGroq(
 }
 
 // ─────────────────────────────────────────────
-// Provider 3 — OpenRouter (free models available)
+// Provider 2 — OpenRouter (1000 req/day free w/ $10 deposit)
 // Get free API key: https://openrouter.ai
 // Add to .env.local: NEXT_PUBLIC_OPENROUTER_API_KEY=xxx
 // ─────────────────────────────────────────────
@@ -190,10 +183,10 @@ async function callViaOpenRouter(
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
-      'HTTP-Referer': 'https://aurelius.app', // replace with your domain
+      'HTTP-Referer': 'https://aurelius.app',
     },
     body: JSON.stringify({
-      model: 'openrouter/auto', // auto-selects best available free model
+      model: 'openrouter/auto',
       messages: msgs,
       stream: !!onToken,
     }),
@@ -231,7 +224,7 @@ async function callViaOpenRouter(
 }
 
 // ─────────────────────────────────────────────
-// Provider 4 — Google Gemini (free tier)
+// Provider 3 — Google Gemini (250 req/day free)
 // Get free API key: https://aistudio.google.com
 // Add to .env.local: NEXT_PUBLIC_GEMINI_API_KEY=xxx
 // ─────────────────────────────────────────────
@@ -241,7 +234,6 @@ async function callViaGemini(
   const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY
   if (!apiKey) throw new Error('Gemini API key not set')
 
-  // Convert messages to Gemini format
   const contents = msgs
     .filter((m) => m.role !== 'system')
     .map((m) => ({
@@ -275,8 +267,48 @@ async function callViaGemini(
 }
 
 // ─────────────────────────────────────────────
+// Provider 4 — Puter.js (last resort only)
+// Wrapped in 5s timeout so popup never lingers long
+// ─────────────────────────────────────────────
+async function callViaPuter(
+  msgs: { role: string; content: string }[],
+  model: Model,
+  stream: boolean,
+  onToken?: (full: string) => void
+): Promise<string> {
+  const puter = window.puter
+  if (!puter) throw new Error('Puter.js not loaded')
+
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error('Puter timeout')), 5000)
+  )
+
+  const puterCall = async (): Promise<string> => {
+    if (stream) {
+      const iter = await puter.ai.chat(msgs, { model, stream: true })
+      let full = ''
+      for await (const chunk of iter) {
+        const token: string = chunk?.text ?? chunk?.delta?.text ?? ''
+        if (token) {
+          full += token
+          onToken?.(full)
+        }
+      }
+      return full
+    } else {
+      const res = await puter.ai.chat(msgs, { model })
+      return res?.message?.content?.[0]?.text ?? res?.text ?? String(res)
+    }
+  }
+
+  return Promise.race([puterCall(), timeout])
+}
+
+// ─────────────────────────────────────────────
 // MAIN FUNCTION — Auto-fallback across all providers
-// Order: Puter → Groq → OpenRouter → Gemini
+// Order: Groq → OpenRouter → Gemini → Puter (last)
+// Puter popup auto-dismissed on failure
+// onProvider tells UI which provider is responding
 // ─────────────────────────────────────────────
 export async function callClaude({
   messages,
@@ -286,16 +318,13 @@ export async function callClaude({
   onToken,
   onDone,
   onError,
+  onProvider,
 }: CallOptions) {
   const msgs: { role: string; content: string }[] = []
   if (systemPrompt) msgs.push({ role: 'system', content: systemPrompt })
   msgs.push(...messages.map((m) => ({ role: m.role, content: m.content })))
 
   const providers = [
-    {
-      name: 'Puter',
-      call: () => callViaPuter(msgs, model, stream, onToken),
-    },
     {
       name: 'Groq',
       call: () => callViaGroq(msgs, stream ? onToken : undefined),
@@ -306,7 +335,11 @@ export async function callClaude({
     },
     {
       name: 'Gemini',
-      call: () => callViaGemini(msgs), // Gemini streaming not added for simplicity
+      call: () => callViaGemini(msgs),
+    },
+    {
+      name: 'Puter',
+      call: () => callViaPuter(msgs, model, stream, onToken),
     },
   ]
 
@@ -318,6 +351,7 @@ export async function callClaude({
       const result = await provider.call()
       if (result) {
         console.log(`[AI] Success via ${provider.name}`)
+        onProvider?.(provider.name)  // tell UI which provider responded
         onDone(result)
         return
       }
@@ -326,7 +360,15 @@ export async function callClaude({
       const msg = err instanceof Error ? err.message : 'Unknown error'
       console.warn(`[AI] ${provider.name} failed: ${msg}`)
       errors.push(`**${provider.name}:** ${msg}`)
-      // Reset streamed tokens before trying next provider
+
+      // Dismiss Puter popup immediately + safety sweeps for late renders
+      if (provider.name === 'Puter') {
+        dismissPuterPopup()
+        setTimeout(dismissPuterPopup, 100)
+        setTimeout(dismissPuterPopup, 500)
+      }
+
+      // Clear any partial streamed tokens before trying next provider
       onToken?.('')
     }
   }
