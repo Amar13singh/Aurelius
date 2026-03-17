@@ -3,11 +3,7 @@ import { useState, useRef } from 'react'
 import { Zap, Settings, Thermometer, Trash2 } from 'lucide-react'
 import { useStore } from '@/store'
 import { callClaude } from '@/lib/ai'
-import {
-  MessagesList,
-  TypingIndicator,
-  ChatInputBar,
-} from '@/app/components/ui/MessageBubble'
+import { MessagesList, ChatInputBar } from '@/app/components/ui/MessageBubble'
 import { Modal, Button, toast } from '@/app/components/ui'
 import { cn } from '@/lib/utils'
 
@@ -49,7 +45,6 @@ export function ChatTool() {
     const placeholder = addChatMessage('assistant', '')
     setStreamingId(placeholder.id)
 
-    // slice(0,-2) excludes the user msg just added + empty placeholder
     const history = useStore
       .getState()
       .chatMessages.slice(0, -2)
@@ -82,32 +77,40 @@ export function ChatTool() {
     })
   }
 
+  async function regenerate() {
+    const msgs = useStore.getState().chatMessages
+    const lastUser = [...msgs].reverse().find(m => m.role === 'user')
+    if (!lastUser || thinking) return
+    // Remove last assistant message
+    const filtered = msgs.filter((_, i) => i !== msgs.length - 1)
+    useStore.setState({ chatMessages: filtered })
+    await send(lastUser.content)
+  }
+
   const showWelcome = chatMessages.length === 0
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
-
-      {/* Messages */}
-      <MessagesList messages={chatMessages} streamingId={streamingId}>
-
-        {/* Welcome screen */}
+      <MessagesList
+        messages={chatMessages}
+        streamingId={streamingId}
+        onRegenerate={regenerate}
+      >
         {showWelcome && (
-          <div className="flex flex-col items-center justify-center py-16 px-6 text-center animate-slide-up">
-            <div className="text-4xl text-[var(--acc)] mb-5 animate-spin-slow">
-              ✦
-            </div>
-            <h1 className="font-display text-5xl font-light text-[var(--txt)] tracking-tight mb-3">
+          <div className="flex flex-col items-center justify-center py-20 px-6 text-center animate-slide-up min-h-[60vh]">
+            <div className="text-5xl mb-6 select-none">✦</div>
+            <h1 className="text-4xl font-bold text-[var(--txt)] mb-3 tracking-tight">
               Good {getGreeting()}
             </h1>
             <p className="text-[15px] text-[var(--txt2)] mb-10 max-w-md">
-              Aurelius is your refined Claude interface. Ask anything.
+              Aurelius — your refined Claude AI interface. Ask anything.
             </p>
-            <div className="grid grid-cols-2 gap-2.5 max-w-xl w-full">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl w-full">
               {SUGGESTIONS.map((s) => (
                 <button
                   key={s}
                   onClick={() => send(s)}
-                  className="px-4 py-3 bg-[var(--surf)] border border-[var(--bdr)] rounded-xl text-[13px] text-[var(--txt2)] text-left hover:border-[var(--acc)] hover:bg-[var(--acc-g)] hover:text-[var(--txt)] transition-all duration-150 backdrop-blur-sm"
+                  className="px-5 py-4 bg-[var(--bg2)] border border-[var(--bdr)] rounded-xl text-[13.5px] text-[var(--txt2)] text-left hover:border-[var(--acc2)] hover:text-[var(--txt)] hover:bg-[var(--bg3)] transition-all duration-150"
                 >
                   {s}
                 </button>
@@ -115,28 +118,16 @@ export function ChatTool() {
             </div>
           </div>
         )}
-
-        {/* Typing indicator */}
-        {thinking &&
-          chatMessages[chatMessages.length - 1]?.content === '' && (
-            <TypingIndicator />
-          )}
       </MessagesList>
 
-      {/* Input bar */}
-      <ChatInputBar
-        onSend={send}
-        disabled={thinking}
-        placeholder="Ask anything…"
-      >
-        {/* Toolbar buttons */}
+      <ChatInputBar onSend={send} disabled={thinking} placeholder="Message Aurelius…">
         <button
           onClick={() => setStreaming(!streaming)}
           className={cn(
-            'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] border transition-all',
+            'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11.5px] border transition-all',
             streaming
-              ? 'bg-[var(--acc-g)] border-[rgba(201,168,108,0.3)] text-[var(--acc)]'
-              : 'bg-[var(--surf2)] border-[var(--bdr)] text-[var(--txt2)]'
+              ? 'bg-[var(--acc2)] bg-opacity-10 border-[var(--acc2)] border-opacity-30 text-[var(--acc2)]'
+              : 'bg-[var(--bg3)] border-[var(--bdr)] text-[var(--txt3)]'
           )}
         >
           <Zap size={10} />
@@ -144,33 +135,24 @@ export function ChatTool() {
         </button>
 
         <button
-          onClick={() => {
-            setDraftSystem(systemPrompt)
-            setShowSystem(true)
-          }}
-          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] border bg-[var(--surf2)] border-[var(--bdr)] text-[var(--txt2)] hover:text-[var(--txt)] transition-all"
+          onClick={() => { setDraftSystem(systemPrompt); setShowSystem(true) }}
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11.5px] border bg-[var(--bg3)] border-[var(--bdr)] text-[var(--txt3)] hover:text-[var(--txt)] transition-all"
         >
           <Settings size={10} />
           System
         </button>
 
         <button
-          onClick={() => {
-            setDraftTemp(temperature)
-            setShowTemp(true)
-          }}
-          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] border bg-[var(--surf2)] border-[var(--bdr)] text-[var(--txt2)] hover:text-[var(--txt)] transition-all"
+          onClick={() => { setDraftTemp(temperature); setShowTemp(true) }}
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11.5px] border bg-[var(--bg3)] border-[var(--bdr)] text-[var(--txt3)] hover:text-[var(--txt)] transition-all"
         >
           <Thermometer size={10} />
           Temp {temperature}
         </button>
 
         <button
-          onClick={() => {
-            clearChat()
-            toast('Chat cleared')
-          }}
-          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] border bg-[var(--surf2)] border-[var(--bdr)] text-[var(--txt2)] hover:text-red-400 hover:border-red-400/40 transition-all"
+          onClick={() => { clearChat(); toast('Chat cleared') }}
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11.5px] border bg-[var(--bg3)] border-[var(--bdr)] text-[var(--txt3)] hover:text-red-400 hover:border-red-400/40 transition-all"
         >
           <Trash2 size={10} />
           Clear
@@ -178,79 +160,52 @@ export function ChatTool() {
       </ChatInputBar>
 
       {/* System Prompt Modal */}
-      <Modal
-        open={showSystem}
-        onClose={() => setShowSystem(false)}
-        title="System Prompt"
-      >
+      <Modal open={showSystem} onClose={() => setShowSystem(false)} title="System Prompt">
         <p className="px-5 py-3 text-[13px] text-[var(--txt2)]">
-          Define Claude&apos;s persona, tone, and constraints for this session.
+          Define Claude&apos;s persona and constraints for this session.
         </p>
         <textarea
           value={draftSystem}
           onChange={(e) => setDraftSystem(e.target.value)}
           placeholder="You are an expert software engineer…"
-          className="w-[calc(100%-40px)] mx-5 min-h-[140px] bg-[var(--bg)] border border-[var(--bdr2)] rounded-lg text-[var(--txt)] text-[13px] font-body leading-relaxed px-3.5 py-3 outline-none resize-y focus:border-[var(--acc)] transition-colors"
+          className="w-[calc(100%-40px)] mx-5 min-h-[140px] bg-[var(--bg)] border border-[var(--bdr2)] rounded-lg text-[var(--txt)] text-[13px] leading-relaxed px-3.5 py-3 outline-none resize-y focus:border-[var(--acc2)] transition-colors placeholder:text-[var(--txt3)]"
         />
         <div className="flex gap-2 justify-end px-5 py-4 border-t border-[var(--bdr)]">
-          <Button variant="outline" onClick={() => setShowSystem(false)}>
-            Cancel
-          </Button>
-          <Button
-            variant="accent"
-            onClick={() => {
-              setSystemPrompt(draftSystem)
-              setShowSystem(false)
-              toast('System prompt applied')
-            }}
-          >
+          <Button variant="outline" onClick={() => setShowSystem(false)}>Cancel</Button>
+          <Button variant="accent" onClick={() => {
+            setSystemPrompt(draftSystem)
+            setShowSystem(false)
+            toast('System prompt applied')
+          }}>
             Apply
           </Button>
         </div>
       </Modal>
 
       {/* Temperature Modal */}
-      <Modal
-        open={showTemp}
-        onClose={() => setShowTemp(false)}
-        title="Temperature"
-        maxWidth="max-w-sm"
-      >
-        <p className="px-5 py-3 text-[13px] text-[var(--txt2)]">
-          Lower = precise · Higher = creative
-        </p>
+      <Modal open={showTemp} onClose={() => setShowTemp(false)} title="Temperature" maxWidth="max-w-sm">
+        <p className="px-5 py-3 text-[13px] text-[var(--txt2)]">Lower = precise · Higher = creative</p>
         <div className="px-5 pb-2">
           <div className="flex items-center gap-3">
             <span className="text-[11px] text-[var(--txt3)]">0</span>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.05}
-              value={draftTemp}
-              onChange={(e) => setDraftTemp(parseFloat(e.target.value))}
-              className="flex-1"
-            />
+            <input type="range" min={0} max={1} step={0.05} value={draftTemp}
+              onChange={(e) => setDraftTemp(parseFloat(e.target.value))} className="flex-1" />
             <span className="text-[11px] text-[var(--txt3)]">1</span>
           </div>
-          <p className="text-center font-display text-4xl font-light text-[var(--acc)] py-3">
+          <p className="text-center text-3xl font-bold text-[var(--acc2)] py-3">
             {draftTemp.toFixed(2)}
           </p>
         </div>
         <div className="flex justify-end px-5 py-4 border-t border-[var(--bdr)]">
-          <Button
-            variant="accent"
-            onClick={() => {
-              setTemperature(draftTemp)
-              setShowTemp(false)
-              toast(`Temperature: ${draftTemp}`)
-            }}
-          >
+          <Button variant="accent" onClick={() => {
+            setTemperature(draftTemp)
+            setShowTemp(false)
+            toast(`Temperature: ${draftTemp}`)
+          }}>
             Set Temperature
           </Button>
         </div>
       </Modal>
-
     </div>
   )
 }

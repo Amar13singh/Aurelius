@@ -22,48 +22,31 @@ export default function Home() {
 
   const exportChat = useCallback(() => {
     const { chatMessages, model } = useStore.getState()
-    if (!chatMessages.length) {
-      toast('Nothing to export')
-      return
-    }
-    const lines = [
-      `# Aurelius Export\n${new Date().toLocaleString()} · ${model}\n\n---\n`,
-    ]
+    if (!chatMessages.length) { toast('Nothing to export'); return }
+    const lines = [`# Aurelius Export\n${new Date().toLocaleString()} · ${model}\n\n---\n`]
     chatMessages.forEach((m) =>
-      lines.push(
-        `**${m.role === 'user' ? 'You' : 'Aurelius'}**\n\n${m.content}\n\n---\n`
-      )
+      lines.push(`**${m.role === 'user' ? 'You' : 'Aurelius'}**\n\n${m.content}\n\n---\n`)
     )
     const a = document.createElement('a')
-    a.href = URL.createObjectURL(
-      new Blob([lines.join('\n')], { type: 'text/markdown' })
-    )
+    a.href = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/markdown' }))
     a.download = `aurelius-${Date.now()}.md`
     a.click()
     toast('Chat exported')
   }, [])
 
-  useKeyboardShortcuts({
-    onOpenSettings: openSettings,
-    onExport: exportChat,
-  })
+  useKeyboardShortcuts({ onOpenSettings: openSettings, onExport: exportChat })
 
   return (
-    <div className="relative flex h-screen overflow-hidden bg-[var(--bg)]">
-
-      {/* Floating background orbs */}
+    <div className="relative flex flex-col h-screen overflow-hidden bg-[var(--bg)]">
       <AmbientBackground />
 
-      {/* Sidebar */}
-      <div className="relative z-10">
-        <Sidebar onOpenSettings={openSettings} />
-      </div>
+      {/* Sidebar — slides over content */}
+      <Sidebar onOpenSettings={openSettings} />
 
-      {/* Main content area */}
-      <div className="relative z-10 flex flex-col flex-1 overflow-hidden min-w-0">
+      {/* Full screen layout */}
+      <div className="relative z-10 flex flex-col flex-1 overflow-hidden">
         <Topbar onOpenSettings={openSettings} />
 
-        {/* Tool panels — only active one renders */}
         <div className="flex flex-col flex-1 overflow-hidden">
           {activeTool === 'chat'     && <ChatTool />}
           {activeTool === 'pdf'      && <PdfTool />}
@@ -74,15 +57,8 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Settings slide-over panel */}
-      <SettingsPanel
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-      />
-
-      {/* Global toast notifications */}
+      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <Toast />
-
     </div>
   )
 }
